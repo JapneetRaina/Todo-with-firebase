@@ -10,9 +10,11 @@ import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.database.DataSnapshot
 import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.DatabaseReference
@@ -22,7 +24,7 @@ import com.google.firebase.ktx.Firebase
 import com.japneet.todoapplication.utils.adapter.TodoAdapter
 import com.japneet.todoapplication.utils.models.TodoData
 import java.util.*
-import kotlin.collections.HashMap
+
 
 class MainActivity : AppCompatActivity(), TodoAdapter.OnItemClickListener {
     private lateinit var addFB: FloatingActionButton
@@ -41,6 +43,7 @@ class MainActivity : AppCompatActivity(), TodoAdapter.OnItemClickListener {
         initViews()
         taskAdapter.setOnItemClickListener(this)
         getTasksFromFirebase()
+
     }
 
     private fun getTasksFromFirebase() {
@@ -56,13 +59,16 @@ class MainActivity : AppCompatActivity(), TodoAdapter.OnItemClickListener {
                     val todo = taskSnapshot.key?.let {
                         Log.d(TAG, "onDataChange: ${dataMap["checked"]} ")
                         val getCheckBox = dataMap["checked"] as Boolean
+                        val getDescription =
+                            if (dataMap["description"] != null) dataMap["description"] as String else "edit to type Description"
                         val getTitle = dataMap["title"] as String
                         TodoData(
                             getCheckBox,
+                            getDescription,
                             getTitle
                         )
                     }
-
+                    swipeToDelete()
                     if (todo != null) {
                         toDoItemList.add(todo)
                     }
@@ -84,8 +90,58 @@ class MainActivity : AppCompatActivity(), TodoAdapter.OnItemClickListener {
         taskAdapter = TodoAdapter(toDoItemList)
         recyclerView.adapter = taskAdapter
         database = Firebase.database.reference
+
         addFB.setOnClickListener {
             addTask()
+        }
+    }
+
+    private fun swipeToDelete() {
+        ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.RIGHT) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                return false
+            }
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val deletedCourse: TodoData =
+                    toDoItemList[viewHolder.adapterPosition]
+                val position = viewHolder.adapterPosition
+                toDoItemList.removeAt(viewHolder.adapterPosition)
+                taskAdapter.notifyItemRemoved(viewHolder.adapterPosition)
+
+                onItemDelete()
+                Snackbar.make(recyclerView, deletedCourse.title, Snackbar.LENGTH_LONG).setAction(
+                    "Undo"
+                ) {
+                    toDoItemList.add(position, deletedCourse)
+                    taskAdapter.notifyItemInserted(position)
+                }.show()
+            }
+        }).attachToRecyclerView(recyclerView)
+
+
+    }
+
+    private fun onItemDelete() {
+        for (i in taskUIDs.indices) {
+            element = listOf(taskUIDs[i])
+            Log.d(TAG, "onUpdateTask: $element")
+        }
+        val list: String =
+            Arrays.toString(element.toTypedArray()).replace("[", "")
+                .replace("]", "")
+
+        database.child("Tasks").child(list).removeValue().addOnCompleteListener {
+            if (it.isSuccessful) {
+                Toast.makeText(this@MainActivity, "Deleted Successfully", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity, it.exception.toString(), Toast.LENGTH_SHORT)
+                    .show()
+            }
         }
     }
 
@@ -124,7 +180,6 @@ class MainActivity : AppCompatActivity(), TodoAdapter.OnItemClickListener {
     }
 
     override fun onCheckBoxClick(isChecked: Boolean, pos: TodoData) {
-
         Log.d(TAG, "onCheckBoxClick: $isChecked")
     }
 
@@ -140,21 +195,25 @@ class MainActivity : AppCompatActivity(), TodoAdapter.OnItemClickListener {
         val taskET: EditText = dialogView.findViewById(R.id.taskET)
         val addBtn: Button = dialogView.findViewById(R.id.updateBtn)
         val cancelBtn: Button = dialogView.findViewById(R.id.cancelButton)
+        val descriptionEt: EditText = dialogView.findViewById(R.id.descriptionET)
         cancelBtn.setOnClickListener {
             alertdialog.dismiss()
         }
         addBtn.setOnClickListener {
+            val getDescription = descriptionEt.text.toString()
             val getTask = taskET.text.toString()
             val isCheckedValue = taskAdapter.isChecked
             val map = HashMap<String, Any>()
             map["checked"] = isCheckedValue
             map["title"] = getTask
+            map["description"] = getDescription
             for (i in taskUIDs.indices) {
                 element = listOf(taskUIDs[i])
                 Log.d(TAG, "onUpdateTask: $element")
             }
             val list: String =
-                Arrays.toString(element.toTypedArray()).replace("[", "").replace("]", "")
+                Arrays.toString(element.toTypedArray()).replace("[", "")
+                    .replace("]", "")
             database.child("Tasks").child(list).updateChildren(map)
                 .addOnCompleteListener {
                     if (it.isSuccessful)
